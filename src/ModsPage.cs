@@ -238,7 +238,7 @@ namespace ModConfigurator
                 case EntryKind.KeyCapture:
                 case EntryKind.ButtonCapture:
                 {
-                    if (BindRows.HasTemplate)
+                    if (BindRows.EnsureTemplate())
                     {
                         // the same row element and capture flow as Settings > Controls
                         var br = BindRows.Create(BindTemplate(), _rowParent, e, _state, null);

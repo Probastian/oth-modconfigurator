@@ -56,4 +56,30 @@ namespace ModConfigurator.Patches
             catch (Exception e) { Mod.Log.Error(e.ToString()); }
         }
     }
+
+    // L1 / R1 switch between the Controls page's tabs (Einfach / Erweitert). While one of our bindings waits for an input,
+    // those presses must be captured instead.
+    [HarmonyPatch(typeof(StateControlsSettingsMenu), nameof(StateControlsSettingsMenu.SwitchMenuLeft))]
+    internal static class StateControlsSettingsMenu_SwitchLeft_Patch
+    {
+        private static bool Prefix() => !BindRows.Capturing;
+    }
+
+    [HarmonyPatch(typeof(StateControlsSettingsMenu), nameof(StateControlsSettingsMenu.SwitchMenuRight))]
+    internal static class StateControlsSettingsMenu_SwitchRight_Patch
+    {
+        private static bool Prefix() => !BindRows.Capturing;
+    }
+
+    // "Remove binding" (F): the page's handler acts on the last selected *game* row; when one of our rows is selected we clear
+    // our own setting instead and keep the game's handler away from its bindings.
+    [HarmonyPatch(typeof(StateControlsSettingsMenu), nameof(StateControlsSettingsMenu.Unbind))]
+    internal static class StateControlsSettingsMenu_Unbind_Patch
+    {
+        private static bool Prefix()
+        {
+            try { return !BindRows.TryUnbindSelected(); }
+            catch (Exception e) { Mod.Log.Error(e.ToString()); return true; }
+        }
+    }
 }

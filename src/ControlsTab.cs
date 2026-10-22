@@ -19,7 +19,7 @@ namespace ModConfigurator
     {
         private sealed class Block
         {
-            public GameObject Heading;
+            public BindRows.Heading Heading;
             public readonly List<BindRows.Row> Rows = new List<BindRows.Row>();
         }
 
@@ -73,7 +73,7 @@ namespace ModConfigurator
 
                 if (_built)
                 {
-                    var scheme = GameInput.ControlScheme;
+                    var scheme = _state.currentScheme;           // the device chosen in the page's "Input" entry
                     if (scheme != _scheme) { _scheme = scheme; ApplyScheme(); }
                     SaveIfDue();
                     return;
@@ -101,7 +101,7 @@ namespace ModConfigurator
 
         private static void Build(ContextUIControlsSettingsMenu ctx, UIButtonSelector template)
         {
-            BindRows.CacheTemplate(template.gameObject);
+            if (!BindRows.EnsureTemplate()) BindRows.CacheTemplate(template.gameObject);
 
             _cats = ConfigModel.Discover();
             var parent = template.transform.parent;
@@ -129,7 +129,7 @@ namespace ModConfigurator
                 Blocks.Add(block);
             }
 
-            _scheme = GameInput.ControlScheme;
+            _scheme = _state.currentScheme;
             ApplyScheme();
         }
 
@@ -146,14 +146,20 @@ namespace ModConfigurator
                 {
                     bool show = (r.Entry.Kind == EntryKind.KeyCapture) == keyboard;
                     if (r.Go.activeSelf != show) r.Go.SetActive(show);
-                    if (show) { any = true; var s = r.Go.GetComponent<Selectable>(); if (s != null) visible.Add(s); }
+                    if (show)
+                    {
+                        any = true;
+                        BindRows.Refresh(r);                  // re-enabling a row restores the original localized label: put ours back
+                        var s = r.Go.GetComponent<Selectable>(); if (s != null) visible.Add(s);
+                    }
                 }
-                if (b.Heading.activeSelf != any) b.Heading.SetActive(any);
+                if (b.Heading.Go.activeSelf != any) b.Heading.Go.SetActive(any);
+                if (any) b.Heading.Apply();
             }
 
             RewireNavigation(visible);
 
-            var rt = (Blocks.Count > 0 ? Blocks[0].Heading.transform.parent : null) as RectTransform;
+            var rt = (Blocks.Count > 0 ? Blocks[0].Heading.Go.transform.parent : null) as RectTransform;
             if (rt != null) LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
         }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -7,11 +7,14 @@ namespace ModConfigurator
 {
     /// <summary>
     /// "Press the new key / button" capture for key and gamepad-button settings. Shared by the native settings page and the
-    /// overlay window. Esc cancels (Start cancels a gamepad capture), Backspace/Delete clears to "None", 10 s timeout.
+    /// overlay window. Esc cancels (Start cancels a gamepad capture), Backspace/Delete clears to "None", times out after <see cref="Timeout"/> seconds.
     /// </summary>
     internal static class Capture
     {
         internal static EntryVm Target { get; private set; }
+        /// <summary>How long a capture waits for an input; the waiting circle fills over this time.</summary>
+        internal const float Timeout = 5f;
+
         private static float _until;
         private static int _startFrame;
 
@@ -20,11 +23,14 @@ namespace ModConfigurator
         internal static void Begin(EntryVm entry)
         {
             Target = entry;
-            _until = Time.realtimeSinceStartup + 10f;
+            _until = Time.realtimeSinceStartup + Timeout;
             _startFrame = Time.frameCount;
         }
 
         internal static void Cancel() => Target = null;
+
+        /// <summary>0 .. 1: how much of the waiting time has passed.</summary>
+        internal static float Progress => Target == null ? 0f : Mathf.Clamp01(1f - (_until - Time.realtimeSinceStartup) / Timeout);
 
         internal static string Prompt =>
             Target == null ? "" : Target.Kind == EntryKind.KeyCapture ? "Press a key..." : "Press a button...";
