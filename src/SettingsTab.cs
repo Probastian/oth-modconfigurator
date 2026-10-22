@@ -23,7 +23,6 @@ namespace ModConfigurator
         private static StateSettingsMenu _settingsState;
         private static float _settingsSince;
         private static bool _injected;
-        private static bool _dumpedSettings, _dumpedHud;
 
         private static StateHUDSettingsMenu _hudState;
         private static float _hudSince;
@@ -54,7 +53,7 @@ namespace ModConfigurator
 
         internal static void OnHudPageClosing(StateHUDSettingsMenu state)
         {
-            if (_page != null) { _page.Close(); _page = null; Mod.Log.Msg("Mods settings page closed. " + OthShared.BlurDiag.Status()); }
+            if (_page != null) { _page.Close(); _page = null; }
             if (_hudState != null && state != null && _hudState.Pointer == state.Pointer) _hudState = null;
             _hudWantsPage = false;
         }
@@ -75,9 +74,6 @@ namespace ModConfigurator
                 {
                     var ctx = _hudState.hudSettingsMenuUIContext;
                     bool ready = ctx != null && ctx.ShowTime != null;
-
-                    if (ready && !_dumpedHud) { _dumpedHud = true; UiDump.Dump("HUD settings page (before changes)", ctx.transform); }
-
                     if (_hudWantsPage && _page == null)
                     {
                         if (ready) TryBuildPage(ctx);
@@ -108,9 +104,6 @@ namespace ModConfigurator
 
             var hud = ctx.HUDButton;
             var parent = hud.transform.parent;
-
-            if (!_dumpedSettings) { _dumpedSettings = true; UiDump.Dump("Settings menu (before changes)", parent != null && parent.parent != null ? parent.parent : ctx.transform); }
-
             var go = UnityEngine.Object.Instantiate(hud.gameObject, parent);
             go.name = "ModsButton";
             go.SetActive(true);
@@ -131,7 +124,6 @@ namespace ModConfigurator
             FixNavigation(parent);
 
             _injected = true;
-            Mod.Log.Msg("Added the 'Mods' entry to the settings menu");
         }
 
         /// <summary>If the menu uses explicit up/down navigation, thread the new button into it (automatic navigation needs nothing).</summary>
@@ -179,9 +171,6 @@ namespace ModConfigurator
             {
                 _page = new ModsPage(_hudState, ctx);
                 _page.Build();
-                Mod.Log.Msg("Mods settings page built");
-                Mod.Log.Msg(OthShared.BlurDiag.Status());
-                UiDump.Dump("Mods page (after changes)", ctx.transform);
             }
             catch (Exception e)
             {

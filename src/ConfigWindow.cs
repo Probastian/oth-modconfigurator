@@ -76,7 +76,6 @@ namespace ModConfigurator
                 IsOpen = true;
                 if (Settings.BlockGameInput.Value) PushUiMap();
                 ShowCursor();
-                Mod.Log.Msg($"Settings window opened ({_cats.Count} categories)");
             }
             catch (Exception e)
             {
@@ -87,7 +86,6 @@ namespace ModConfigurator
 
         internal static void Close()
         {
-            bool wasOpen = IsOpen;
             IsOpen = false;
             Capture.Cancel();
             foreach (var c in _cats) c.Save();
@@ -97,7 +95,6 @@ namespace ModConfigurator
             EntRows.Clear();
             PopUiMap();
             RestoreCursor();
-            if (wasOpen) Mod.Log.Msg("Settings window closed");
         }
 
         /// <summary>Debounced autosave of edited categories (called every frame).</summary>

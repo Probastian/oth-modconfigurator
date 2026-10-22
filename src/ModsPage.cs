@@ -107,7 +107,7 @@ namespace ModConfigurator
                 if (t == null || t.GetComponentInParent<UISelector>(true) != null) continue;
                 if (best == null || t.fontSize > best.fontSize) best = t;
             }
-            if (best == null) { Mod.Log.Msg("No title text found on the page (left as is)"); return; }
+            if (best == null) return;
             SetText(best, text);
         }
 

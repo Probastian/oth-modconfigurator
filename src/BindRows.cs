@@ -11,11 +11,12 @@ namespace ModConfigurator
 {
     /// <summary>
     /// Key / gamepad-button settings shown like the game's own Settings > Controls rows: a clone of one of its binding rows
-    /// (label on the left, the game's own input icon on the right), the same "waiting for input" indicator while a new input is
-    /// captured, Esc / Start to cancel and Backspace / Delete to unbind.
+    /// (setting name on the left, the game's own input icon with the current binding on the right), the same "waiting for
+    /// input" indicator while a new input is captured, Esc / Start to cancel and Backspace / Delete to unbind.
     ///
-    /// The icon element needs an InputAction to draw, so every row owns a tiny private InputAction that mirrors the setting.
-    /// If the icon can't be drawn the row falls back to showing the value as text in its label.
+    /// The game's icon element draws an InputAction, so every setting is mirrored by a small private InputAction that lives in
+    /// a private InputActionAsset (the icon element refuses actions that are not part of an asset). If the icon can't be
+    /// drawn the row falls back to showing the value as text in its label.
     /// </summary>
     internal static class BindRows
     {
@@ -25,6 +26,7 @@ namespace ModConfigurator
             public UIButtonSelector Btn;
             public EntryVm Entry;
             public InputAction Action;
+            public InputActionReference Reference;
             public UIInputActionIcon Icon;
             public GameObject WaitingGo;
             public TextMeshProUGUI Label;
@@ -32,6 +34,11 @@ namespace ModConfigurator
         }
 
         private static GameObject _holder, _template;
+        private static InputActionAsset _asset;
+        private static InputActionMap _map;
+        private static int _actionCounter;
+        private static readonly Dictionary<string, (InputAction action, InputActionReference reference)> Actions =
+            new Dictionary<string, (InputAction, InputActionReference)>();
         private static readonly List<Row> Rows = new List<Row>();
         private static Row _capturing;
         private static StateUIPoppableState _popOwner;
@@ -70,15 +77,14 @@ namespace ModConfigurator
             var rb = go.GetComponentInChildren<ContextUIRebindingControlsButton>(true);
             row.Icon = rb != null && rb.InputActionIcon != null ? rb.InputActionIcon : go.GetComponentInChildren<UIInputActionIcon>(true);
             row.WaitingGo = rb != null && rb.WaitingImage != null ? rb.WaitingImage.gameObject : null;
-            row.Label = FindLabel(go, row.Icon);
+            row.Label = FindLabel(go);
             if (row.WaitingGo != null) row.WaitingGo.SetActive(false);
 
             // a clone must not keep pointing at the original page's scroll area
             var rbs = go.GetComponent<UIRebindingButtonSelector>();
             if (rbs != null && parent is RectTransform pr) { try { rbs.viewport = pr; } catch { /* optional */ } }
 
-            row.Action = new InputAction("OTH/" + entry.Owner.Name + "/" + entry.Name, InputActionType.Button);
-            AddBinding(row);
+            (row.Action, row.Reference) = GetAction(entry);
 
             if (row.Btn != null)
             {
@@ -116,7 +122,7 @@ namespace ModConfigurator
                     img.enabled = false;
             }
 
-            var label = FindLabel(go, icon);
+            var label = FindLabel(go);
             if (label != null)
             {
                 SetText(label, text.ToUpperInvariant());
@@ -128,7 +134,38 @@ namespace ModConfigurator
         internal static void Forget(Row row)
         {
             Rows.Remove(row);
-            if (_capturing == row) { _capturing = null; }
+            if (_capturing == row) _capturing = null;
+        }
+
+        // ------------------------------------------------------------------ the mirrored input actions
+
+        private static (InputAction, InputActionReference) GetAction(EntryVm e)
+        {
+            string key = e.Owner.Name + "/" + e.Entry.Identifier;
+            if (Actions.TryGetValue(key, out var found) && found.action != null) return found;
+
+            if (_asset == null)
+            {
+                _asset = ScriptableObject.CreateInstance<InputActionAsset>();
+                _asset.name = "OTH_ModBindings";
+                _asset.hideFlags = HideFlags.HideAndDontSave;
+                _map = _asset.AddActionMap("OTH");
+            }
+
+            bool keyboard = e.Kind == EntryKind.KeyCapture;
+            string group = null;
+            try
+            {
+                var pia = GameInput.PlayerInputActions;
+                if (pia != null) group = keyboard ? pia.MouseandKeyboardScheme.bindingGroup : pia.GamepadScheme.bindingGroup;
+            }
+            catch { /* the group only helps the icon pick the binding */ }
+
+            // a placeholder path; the real one is applied as a binding override (see Refresh)
+            var action = _map.AddAction("bind" + (_actionCounter++), InputActionType.Button, keyboard ? "<Keyboard>/space" : "<Gamepad>/buttonSouth", null, null, group);
+            var reference = InputActionReference.Create(action);
+            Actions[key] = (action, reference);
+            return (action, reference);
         }
 
         // ------------------------------------------------------------------ display
@@ -136,47 +173,31 @@ namespace ModConfigurator
         internal static void Refresh(Row row)
         {
             if (row == null || row.Go == null) return;
+            string path = ControlPath(row.Entry);              // null = unbound
             string value = Convert.ToString(row.Entry.Entry.BoxedValue) ?? "None";
-            bool none = string.IsNullOrWhiteSpace(value) || value.Equals("None", StringComparison.OrdinalIgnoreCase);
 
             row.IconOk = false;
             if (row.Icon != null)
             {
                 try
                 {
-                    var scheme = row.Entry.Kind == EntryKind.KeyCapture ? GameInput.ControlSchemeType.KeyboardAndMouse : GameInput.ControlSchemeType.Gamepad;
                     row.Icon.gameObject.SetActive(true);
-                    row.Icon.useFixedControlScheme = true;
-                    row.Icon.fixedControlScheme = scheme;
-
-                    // rebuild the private action so its single binding mirrors the setting
-                    row.Action = new InputAction("OTH/" + row.Entry.Owner.Name + "/" + row.Entry.Name, InputActionType.Button);
-                    if (!none) AddBinding(row);
-                    row.Icon.inputActionReference = InputActionReference.Create(row.Action);
-                    if (none) row.Icon.SetInvisible(); else row.Icon.UpdateIcon();
+                    row.Icon.inputActionReference = row.Reference;
+                    if (path == null) row.Icon.SetInvisible();
+                    else
+                    {
+                        row.Action.ApplyBindingOverride(0, path);
+                        row.Icon.UpdateIcon();
+                    }
                     row.IconOk = true;
                 }
                 catch (Exception e) { Mod.Log.Warning($"Binding icon failed for {row.Entry.Name}: {e.Message}"); }
             }
 
-            SetText(row.Label, row.IconOk ? row.Entry.Name : $"{row.Entry.Name}:  {(none ? "-" : value)}");
+            SetText(row.Label, row.IconOk ? row.Entry.Name : $"{row.Entry.Name}:  {(path == null ? "-" : value)}");
         }
 
-        private static void AddBinding(Row row)
-        {
-            string path = ControlPath(row.Entry);
-            if (path == null) return;
-            string group = null;
-            try
-            {
-                var pia = GameInput.PlayerInputActions;
-                if (pia != null) group = row.Entry.Kind == EntryKind.KeyCapture ? pia.MouseandKeyboardScheme.bindingGroup : pia.GamepadScheme.bindingGroup;
-            }
-            catch { /* group is optional */ }
-            row.Action.AddBinding(path, null, null, group);
-        }
-
-        /// <summary>"<Keyboard>/f8" style control path for the entry's current value, or null for None / unknown.</summary>
+        /// <summary>"&lt;Keyboard&gt;/f8" style control path for the entry's current value, or null for None / unknown.</summary>
         internal static string ControlPath(EntryVm e)
         {
             string value = Convert.ToString(e.Entry.BoxedValue);
@@ -238,19 +259,17 @@ namespace ModConfigurator
             }
         }
 
-        internal static bool Capturing => _capturing != null;
-
         /// <summary>Re-enables menu closing immediately (the page is going away).</summary>
         internal static void Abort()
         {
             if (_capturing != null) { Capture.Cancel(); _capturing = null; }
-            if (_popOwner != null) { try { _popOwner.CanPop = true; } catch { } _popOwner = null; }
+            if (_popOwner != null) { try { _popOwner.CanPop = true; } catch { /* optional */ } _popOwner = null; }
             _restorePopAt = -1f;
         }
 
         // ------------------------------------------------------------------ text helpers
 
-        private static TextMeshProUGUI FindLabel(GameObject go, UIInputActionIcon icon)
+        private static TextMeshProUGUI FindLabel(GameObject go)
         {
             foreach (var t in go.GetComponentsInChildren<TextMeshProUGUI>(true))
             {

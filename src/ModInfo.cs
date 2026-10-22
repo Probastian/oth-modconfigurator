@@ -8,7 +8,7 @@ namespace ModConfigurator
     internal static class ModInfo
     {
         public const string Name = "ModConfigurator";
-        public const string Version = "0.3.0";
+        public const string Version = "0.4.0";
         public const string Author = "Probastian";
     }
 }
