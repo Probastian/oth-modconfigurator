@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using MelonLoader;
@@ -81,9 +81,6 @@ namespace ModConfigurator
         }
 
         private double AsDouble() => Convert.ToDouble(Entry.BoxedValue, CultureInfo.InvariantCulture);
-
-        internal bool IsDefault => Entry.GetValueAsString() == Entry.GetDefaultValueAsString();
-
         internal string ValueText()
         {
             try
@@ -102,34 +99,6 @@ namespace ModConfigurator
             catch { return "?"; }
         }
 
-        /// <summary>Left/right adjustment. <paramref name="mult"/> speeds up numeric steps while a direction is held.</summary>
-        internal void Step(int dir, float mult = 1f)
-        {
-            try
-            {
-                switch (Kind)
-                {
-                    case EntryKind.Bool: Set(!(bool)Entry.BoxedValue); break;
-                    case EntryKind.Number:
-                    {
-                        double v = AsDouble() + dir * _step * mult;
-                        v = Math.Round(v / _step) * _step;
-                        v = Math.Min(_max, Math.Max(_min, v));
-                        Set(Convert.ChangeType(Math.Round(v, 6), ValueType, CultureInfo.InvariantCulture));
-                        break;
-                    }
-                    case EntryKind.Choice:
-                    {
-                        var names = Enum.GetNames(ValueType);
-                        int i = Array.IndexOf(names, Entry.BoxedValue.ToString());
-                        i = (i + dir + names.Length) % names.Length;
-                        Set(Enum.Parse(ValueType, names[i]));
-                        break;
-                    }
-                }
-            }
-            catch (Exception e) { Mod.Log.Warning($"Could not change {Owner.Name}/{Name}: {e.Message}"); }
-        }
 
         // ---- helpers for option-list style editors (the native settings page) ----
 
@@ -207,11 +176,29 @@ namespace ModConfigurator
         }
     }
 
+    /// <summary>
+    /// One bindable action of a mod: like the game's own actions it has a binding per input device. It is made of the mod's
+    /// "&lt;Name&gt;Key" (keyboard) and "&lt;Name&gt;Button" (gamepad) entries; either side may be missing (the mod does not
+    /// support that device).
+    /// </summary>
+    internal sealed class BindableVm
+    {
+        internal readonly CategoryVm Owner;
+        internal string Name;
+        internal EntryVm Key, Button;
+
+        internal BindableVm(CategoryVm owner) { Owner = owner; }
+
+        /// <summary>The entry that holds the binding for the given device (null: the mod has none for it).</summary>
+        internal EntryVm For(bool keyboard) => keyboard ? Key : Button;
+    }
+
     internal sealed class CategoryVm
     {
         internal readonly MelonPreferences_Category Category;
         internal readonly string Name;
         internal readonly List<EntryVm> Entries = new List<EntryVm>();
+        internal readonly List<BindableVm> Bindables = new List<BindableVm>();
         internal bool Dirty;
         internal DateTime LastChange;
 
@@ -219,6 +206,38 @@ namespace ModConfigurator
         {
             Category = cat;
             Name = !string.IsNullOrWhiteSpace(cat.DisplayName) ? cat.DisplayName : cat.Identifier;
+        }
+
+        /// <summary>Pairs the key and button entries into bindables ("ClutchKey" + "ClutchButton" -> "Clutch").</summary>
+        internal void BuildBindables()
+        {
+            Bindables.Clear();
+            var byBase = new Dictionary<string, BindableVm>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in Entries)
+            {
+                if (e.Kind != EntryKind.KeyCapture && e.Kind != EntryKind.ButtonCapture) continue;
+                string id = e.Entry.Identifier ?? "";
+                string baseId = id;
+                foreach (var suffix in new[] { "Hotkey", "Key", "Button" })
+                    if (id.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && id.Length > suffix.Length) { baseId = id.Substring(0, id.Length - suffix.Length); break; }
+
+                if (!byBase.TryGetValue(baseId, out var b))
+                {
+                    b = new BindableVm(this) { Name = StripDeviceWord(e.Name) };
+                    byBase[baseId] = b;
+                    Bindables.Add(b);
+                }
+                if (e.Kind == EntryKind.KeyCapture) { if (b.Key == null) b.Key = e; }
+                else if (b.Button == null) b.Button = e;
+            }
+        }
+
+        private static string StripDeviceWord(string name)
+        {
+            foreach (var suffix in new[] { " hotkey", " key", " button" })
+                if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && name.Length > suffix.Length)
+                    return name.Substring(0, name.Length - suffix.Length);
+            return name;
         }
 
         internal void Save()
@@ -249,6 +268,7 @@ namespace ModConfigurator
                     try { vm.Entries.Add(new EntryVm(vm, e)); }
                     catch (Exception ex) { Mod.Log.Warning($"Skipping {cat.Identifier}/{e.Identifier}: {ex.Message}"); }
                 }
+                vm.BuildBindables();
                 if (vm.Entries.Count > 0) list.Add(vm);
             }
             list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));

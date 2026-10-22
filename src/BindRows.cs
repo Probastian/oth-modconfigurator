@@ -34,6 +34,8 @@ namespace ModConfigurator
             public GameObject WaitingGo;
             public Image WaitingImage;                     // the game's radial "waiting for input" circle (inside the first icon element)
             public TextMeshProUGUI Label;
+            public UIRebindingButtonSelector Rbs;
+            public string Title;                           // the text shown on the left
             public bool IconOk;
         }
 
@@ -116,15 +118,63 @@ namespace ModConfigurator
             _utilIcon = _template.GetComponentInChildren<UIInputActionIcon>(true);
         }
 
+        // ------------------------------------------------------------------ footer prompt
+
+        private static GameObject _unbindPrompt;
+
+        /// <summary>
+        /// The game's "remove binding" footer prompt (its input glyph + localized text) as found on the Controls page, for other
+        /// pages to clone. Null if it could not be found.
+        /// </summary>
+        internal static GameObject UnbindPromptTemplate
+        {
+            get
+            {
+                if (_unbindPrompt == null && _pageInstance != null) _unbindPrompt = FindUnbindPrompt(_pageInstance);
+                return _unbindPrompt;
+            }
+        }
+
+        /// <summary>Fallback: remember the prompt of a live Controls page.</summary>
+        internal static void CacheUnbindPrompt(GameObject livePage)
+        {
+            if (_unbindPrompt != null || livePage == null) return;
+            var found = FindUnbindPrompt(livePage);
+            if (found == null) return;
+            EnsureHolder();
+            _unbindPrompt = UnityEngine.Object.Instantiate(found, _holder.transform);
+            _unbindPrompt.SetActive(false);
+        }
+
+        private static GameObject FindUnbindPrompt(GameObject root)
+        {
+            try
+            {
+                foreach (var group in root.GetComponentsInChildren<ContextUILabelsGroup>(true))
+                {
+                    var list = group.Bindings;
+                    if (list == null) continue;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        var action = list[i]?.InputAction?.inputActionReference?.action;
+                        if (action != null && action.name.IndexOf("Unbind", StringComparison.OrdinalIgnoreCase) >= 0) return list[i].gameObject;
+                    }
+                }
+            }
+            catch (Exception e) { LogFailure("unbind prompt", e); }
+            return null;
+        }
+
         // ------------------------------------------------------------------ creation
 
-        internal static Row Create(GameObject template, Transform parent, EntryVm entry, StateUIPoppableState popOwner, Action onSelected)
+        /// <param name="entry">The setting the row edits; null for a bindable the mod does not support on the current device (shown locked).</param>
+        internal static Row Create(GameObject template, Transform parent, EntryVm entry, string title, StateUIPoppableState popOwner, Action onSelected)
         {
             var go = UnityEngine.Object.Instantiate(template, parent);
             go.name = "ModBindRow";
             go.SetActive(true);
 
-            var row = new Row { Go = go, Entry = entry, Btn = go.GetComponent<UIButtonSelector>() };
+            var row = new Row { Go = go, Entry = entry, Title = title, Btn = go.GetComponent<UIButtonSelector>() };
             var rb = go.GetComponentInChildren<ContextUIRebindingControlsButton>(true);
             row.Icon = rb != null && rb.InputActionIcon != null ? rb.InputActionIcon : go.GetComponentInChildren<UIInputActionIcon>(true);
             row.WaitingImage = rb != null ? rb.WaitingImage : null;
@@ -134,9 +184,10 @@ namespace ModConfigurator
 
             // a clone must not keep pointing at the original page's scroll area
             var rbs = go.GetComponent<UIRebindingButtonSelector>();
+            row.Rbs = rbs;
             if (rbs != null && parent is RectTransform pr) { try { rbs.viewport = pr; } catch { /* optional */ } }
 
-            (row.Action, row.Reference) = GetAction(entry);
+            if (entry != null) (row.Action, row.Reference) = GetAction(entry);
 
             if (row.Btn != null)
             {
@@ -185,6 +236,21 @@ namespace ModConfigurator
             if (_capturing == row) _capturing = null;
         }
 
+        /// <summary>Points the row at another setting (the binding of another device), or null (not supported on that device).</summary>
+        internal static void SetEntry(Row row, EntryVm entry)
+        {
+            if (row.Entry == entry) return;
+            row.Entry = entry;
+            if (entry != null) (row.Action, row.Reference) = GetAction(entry);
+        }
+
+        /// <summary>The game's lock icon: what its own rows show for a binding that cannot be changed.</summary>
+        private static void ShowLock(Row row, bool on)
+        {
+            try { if (row.Rbs != null) row.Rbs.ShowLockIcon(on); }
+            catch { /* cosmetic */ }
+        }
+
         // ------------------------------------------------------------------ the mirrored input actions
 
         private static (InputAction, InputActionReference) GetAction(EntryVm e)
@@ -228,6 +294,17 @@ namespace ModConfigurator
         internal static void Refresh(Row row)
         {
             if (row == null || row.Go == null) return;
+
+            if (row.Entry == null)                              // the mod has no binding for this device: locked, like a fixed game binding
+            {
+                HideGlyph(row);
+                ShowLock(row, true);
+                row.IconOk = true;
+                SetText(row.Label, row.Title);
+                return;
+            }
+            ShowLock(row, false);
+
             string path = ControlPath(row.Entry);              // null = unbound
             string value = Convert.ToString(row.Entry.Entry.BoxedValue) ?? "None";
 
@@ -244,7 +321,7 @@ namespace ModConfigurator
             }
 
             row.IconOk = ok;
-            SetText(row.Label, ok ? row.Entry.Name : $"{row.Entry.Name}:  {(path == null ? "-" : value)}");
+            SetText(row.Label, ok ? row.Title : $"{row.Title}:  {(path == null ? "-" : value)}");
         }
 
         private static bool HideGlyph(Row row)
@@ -402,6 +479,7 @@ namespace ModConfigurator
 
         private static void Begin(Row row, StateUIPoppableState popOwner)
         {
+            if (row.Entry == null) return;                          // not supported on this device
             if (_capturing != null || Capture.Active) return;
             if (Now - _lastFinishAt < 0.3f) return;                // the press that just bound a button must not start a new capture
             _capturing = row;
@@ -411,7 +489,7 @@ namespace ModConfigurator
             _restorePopAt = -1f;
 
             ShowWaiting(row, true);
-            if (!row.IconOk) SetText(row.Label, $"{row.Entry.Name}:  {Capture.Prompt}");
+            if (!row.IconOk) SetText(row.Label, $"{row.Title}:  {Capture.Prompt}");
         }
 
         /// <summary>
@@ -457,7 +535,7 @@ namespace ModConfigurator
                 if (row.Go == null || !row.Go.activeInHierarchy) continue;
                 if (sel == row.Go || sel.transform.IsChildOf(row.Go.transform))
                 {
-                    if (_capturing == null)
+                    if (_capturing == null && row.Entry != null)
                     {
                         row.Entry.SetText("None");
                         Refresh(row);
@@ -480,13 +558,17 @@ namespace ModConfigurator
             if (_capturing != null && Capture.Tick())
             {
                 var row = _capturing;
+                var entry = row.Entry;
                 _capturing = null;
                 _lastFinishAt = Now;
                 ShowWaiting(row, false);
                 Refresh(row);
-                foreach (var other in Rows) if (other != row && other.Entry == row.Entry) Refresh(other);
-                row.Entry.Owner.Dirty = true;
-                row.Entry.Owner.LastChange = DateTime.UtcNow;
+                if (entry != null)
+                {
+                    foreach (var other in Rows) if (other != row && other.Entry == entry) Refresh(other);
+                    entry.Owner.Dirty = true;
+                    entry.Owner.LastChange = DateTime.UtcNow;
+                }
                 _restorePopAt = Now + 0.3f;
             }
 

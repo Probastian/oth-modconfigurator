@@ -21,6 +21,7 @@ namespace ModConfigurator
         {
             public BindRows.Heading Heading;
             public readonly List<BindRows.Row> Rows = new List<BindRows.Row>();
+            public readonly List<BindableVm> Bindables = new List<BindableVm>();      // parallel to Rows
         }
 
         private static StateControlsSettingsMenu _state;
@@ -31,9 +32,10 @@ namespace ModConfigurator
         private static readonly List<Block> Blocks = new List<Block>();
         private static List<CategoryVm> _cats = new List<CategoryVm>();
 
-        // the page's own navigation around its last entry, remembered so it can be restored
-        private static Selectable _reset, _wrapTarget;
-        private static bool _wrapExists;
+        // the page's own navigation around its last entry ("reset to default") and its first entry
+        private static Selectable _reset, _first;
+        private static List<Selectable> _ours = new List<Selectable>();
+        private static int _navFrame;
 
         private static float Now => Time.realtimeSinceStartup;
 
@@ -60,8 +62,8 @@ namespace ModConfigurator
             Blocks.Clear();                                 // the game destroys the page, our rows are part of it
             foreach (var c in _cats) c.Save();
             _cats.Clear();
-            _reset = _wrapTarget = null;
-            _wrapExists = false;
+            _reset = _first = null;
+            _ours.Clear();
         }
 
         internal static void Pump()
@@ -75,6 +77,7 @@ namespace ModConfigurator
                 {
                     var scheme = _state.currentScheme;           // the device chosen in the page's "Input" entry
                     if (scheme != _scheme) { _scheme = scheme; ApplyScheme(); }
+                    if (++_navFrame % 4 == 0) EnforceNavigation();      // the page rebuilds its own links on some events
                     SaveIfDue();
                     return;
                 }
@@ -102,62 +105,95 @@ namespace ModConfigurator
         private static void Build(ContextUIControlsSettingsMenu ctx, UIButtonSelector template)
         {
             if (!BindRows.EnsureTemplate()) BindRows.CacheTemplate(template.gameObject);
+            BindRows.CacheUnbindPrompt(ctx.gameObject);
 
             _cats = ConfigModel.Discover();
             var parent = template.transform.parent;
             var popState = _state.TryCast<StateUIPoppableState>();
 
+            // the page's first entry (what its last entry wraps to) - taken before we touch anything
             _reset = ctx.ResetBasicToDefaultButton;
-            if (_reset != null)
-            {
-                _wrapTarget = _reset.navigation.selectOnDown;
-                _wrapExists = _wrapTarget != null && _wrapTarget.navigation.selectOnUp == _reset;
-            }
+            var vanilla = _state.basicSelectables;
+            _first = _reset != null ? _reset.navigation.selectOnDown : null;
+            if (_first == null && vanilla != null && vanilla.Count > 0) _first = vanilla[0];
 
             foreach (var cat in _cats)
             {
-                var binds = cat.Entries.FindAll(e => e.Kind == EntryKind.KeyCapture || e.Kind == EntryKind.ButtonCapture);
-                if (binds.Count == 0) continue;
+                if (cat.Bindables.Count == 0) continue;
 
                 var block = new Block { Heading = BindRows.CreateHeading(template.gameObject, parent, cat.Name) };
-                foreach (var e in binds)
+                bool keyboard = _state.currentScheme == GameInput.ControlSchemeType.KeyboardAndMouse;
+                foreach (var bindable in cat.Bindables)
                 {
                     BindRows.Row row = null;
-                    row = BindRows.Create(template.gameObject, parent, e, popState, () => ScrollTo(row));
+                    row = BindRows.Create(template.gameObject, parent, bindable.For(keyboard), bindable.Name, popState, () => ScrollTo(row));
                     block.Rows.Add(row);
+                    block.Bindables.Add(bindable);
                 }
                 Blocks.Add(block);
             }
 
             _scheme = _state.currentScheme;
             ApplyScheme();
+            RegisterWithPage();
         }
 
-        /// <summary>Shows the rows that match the current input device, hides the rest, and re-weaves the navigation.</summary>
+        /// <summary>
+        /// The page keeps a list of its focusable rows and builds its up/down links (and the wrap-around) from it. Our rows join that
+        /// list right after the "reset" entry, so the page's own logic produces the same chain we want: ... reset, ours..., wrap.
+        /// </summary>
+        private static void RegisterWithPage()
+        {
+            try
+            {
+                var list = _state.basicSelectables;
+                if (list == null || _reset == null) return;
+                int at = list.IndexOf(_reset);
+                if (at < 0) return;                         // the reset entry is not part of the page's list: our own wiring alone has to do
+                foreach (var s in _ours)
+                    if (!list.Contains(s)) list.Insert(++at, s);
+                _state.UpdateBaseSelectablesStatus();
+            }
+            catch (Exception e) { Mod.Log.Warning($"Could not register the mod rows with the Controls page: {e.Message}"); }
+            RewireNavigation(_ours);
+        }
+
+        /// <summary>Re-applies our links if something (the page) changed them.</summary>
+        private static void EnforceNavigation()
+        {
+            if (_reset == null || _ours.Count == 0) return;
+            var last = _ours[_ours.Count - 1];
+            bool ok = _reset.navigation.selectOnDown == _ours[0]
+                   && _ours[0].navigation.selectOnUp == _reset
+                   && last.navigation.selectOnDown == _first
+                   && (_first == null || _first.navigation.selectOnUp == last);
+            if (!ok) RewireNavigation(_ours);
+        }
+
+        /// <summary>
+        /// Like the game's own rows, every bindable is always listed; each row shows and edits the binding of the device selected in
+        /// the page's "Input" entry. A mod that has no binding for that device gets a locked row (the game's lock icon).
+        /// </summary>
         private static void ApplyScheme()
         {
             bool keyboard = _scheme == GameInput.ControlSchemeType.KeyboardAndMouse;
-            var visible = new List<Selectable>();
+            var all = new List<Selectable>();
 
             foreach (var b in Blocks)
             {
-                bool any = false;
-                foreach (var r in b.Rows)
+                b.Heading.Apply();
+                for (int i = 0; i < b.Rows.Count; i++)
                 {
-                    bool show = (r.Entry.Kind == EntryKind.KeyCapture) == keyboard;
-                    if (r.Go.activeSelf != show) r.Go.SetActive(show);
-                    if (show)
-                    {
-                        any = true;
-                        BindRows.Refresh(r);                  // re-enabling a row restores the original localized label: put ours back
-                        var s = r.Go.GetComponent<Selectable>(); if (s != null) visible.Add(s);
-                    }
+                    var r = b.Rows[i];
+                    if (!BindRows.Capturing) BindRows.SetEntry(r, b.Bindables[i].For(keyboard));
+                    BindRows.Refresh(r);                  // also puts our label back (re-enabling restores the template row's text)
+                    var s = r.Go.GetComponent<Selectable>();
+                    if (s != null) all.Add(s);
                 }
-                if (b.Heading.Go.activeSelf != any) b.Heading.Go.SetActive(any);
-                if (any) b.Heading.Apply();
             }
 
-            RewireNavigation(visible);
+            _ours = all;
+            RewireNavigation(all);
 
             var rt = (Blocks.Count > 0 ? Blocks[0].Heading.Go.transform.parent : null) as RectTransform;
             if (rt != null) LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
@@ -165,7 +201,8 @@ namespace ModConfigurator
 
         /// <summary>
         /// The page's last native entry ("reset to default") used to link straight back to the first entry (and the first entry
-        /// up to it). Our rows go in between: reset -> ours ... -> first entry, and first entry up -> our last row.
+        /// up to it). Only the very last row of the page may wrap: reset -> ours ... -> first entry, and first entry up -> our last
+        /// row. So the wrap-around goes to the real bottom, and "down" on reset continues into our rows.
         /// </summary>
         private static void RewireNavigation(List<Selectable> ours)
         {
@@ -173,8 +210,8 @@ namespace ModConfigurator
 
             if (ours.Count == 0)
             {
-                var n = _reset.navigation; n.selectOnDown = _wrapTarget; _reset.navigation = n;
-                if (_wrapExists) { var f = _wrapTarget.navigation; f.selectOnUp = _reset; _wrapTarget.navigation = f; }
+                var n = _reset.navigation; n.selectOnDown = _first; _reset.navigation = n;
+                if (_first != null) { var f = _first.navigation; f.selectOnUp = _reset; _first.navigation = f; }
                 return;
             }
 
@@ -183,7 +220,7 @@ namespace ModConfigurator
                 var nav = ours[i].navigation;
                 nav.mode = Navigation.Mode.Explicit;
                 nav.selectOnUp = i == 0 ? _reset : ours[i - 1];
-                nav.selectOnDown = i == ours.Count - 1 ? (_wrapExists ? _wrapTarget : null) : ours[i + 1];
+                nav.selectOnDown = i == ours.Count - 1 ? _first : ours[i + 1];
                 nav.selectOnLeft = null;
                 nav.selectOnRight = null;
                 ours[i].navigation = nav;
@@ -193,11 +230,11 @@ namespace ModConfigurator
             r.selectOnDown = ours[0];
             _reset.navigation = r;
 
-            if (_wrapExists)
+            if (_first != null)
             {
-                var f = _wrapTarget.navigation;
+                var f = _first.navigation;
                 f.selectOnUp = ours[ours.Count - 1];
-                _wrapTarget.navigation = f;
+                _first.navigation = f;
             }
         }
 

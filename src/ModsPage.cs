@@ -241,7 +241,7 @@ namespace ModConfigurator
                     if (BindRows.EnsureTemplate())
                     {
                         // the same row element and capture flow as Settings > Controls
-                        var br = BindRows.Create(BindTemplate(), _rowParent, e, _state, null);
+                        var br = BindRows.Create(BindTemplate(), _rowParent, e, e.Name, _state, null);
                         _active.Add(new RowRef { Go = br.Go, Btn = br.Btn, Parent = _rowParent, Bind = br });
                         break;
                     }
@@ -328,6 +328,42 @@ namespace ModConfigurator
         // ------------------------------------------------------------------ capture (hotkeys / gamepad buttons)
 
         private bool _ownCapture;
+        private GameObject _unbindPrompt;
+        private bool _unbindPromptTried;
+
+        /// <summary>
+        /// Like the Controls page: while one of our binding rows is selected the footer offers "remove binding" (the game's own
+        /// prompt, cloned), and the game's remove-binding input clears the row.
+        /// </summary>
+        private void UpdateUnbind()
+        {
+            var es = EventSystem.current;
+            var sel = es != null ? es.currentSelectedGameObject : null;
+            bool onBind = false;
+            if (sel != null)
+                foreach (var r in _active)
+                    if (r.Bind != null && r.Go != null && (sel == r.Go || sel.transform.IsChildOf(r.Go.transform))) { onBind = true; break; }
+
+            if (onBind && _unbindPrompt == null && !_unbindPromptTried)
+            {
+                _unbindPromptTried = true;
+                var template = BindRows.UnbindPromptTemplate;
+                var group = template != null ? _ctx.GetComponentInChildren<ContextUILabelsGroup>(true) : null;
+                if (template != null && group != null)
+                {
+                    _unbindPrompt = UnityEngine.Object.Instantiate(template, group.transform);
+                    _unbindPrompt.name = "ModUnbindPrompt";
+                    _unbindPrompt.transform.SetSiblingIndex(Math.Max(0, group.transform.childCount - 2));      // before "back"
+                }
+            }
+            if (_unbindPrompt != null && _unbindPrompt.activeSelf != onBind) _unbindPrompt.SetActive(onBind);
+
+            if (onBind && !BindRows.Capturing)
+            {
+                var action = GameInput.PlayerInputActions != null ? GameInput.PlayerInputActions.m_UI_Unbind : null;
+                if (action != null && action.WasPressedThisFrame()) BindRows.TryUnbindSelected();
+            }
+        }
 
         private void BeginCapture(EntryVm e, RowRef row)
         {
@@ -343,6 +379,8 @@ namespace ModConfigurator
         internal void Tick()
         {
             if (_closed) return;
+
+            UpdateUnbind();
 
             if (_ownCapture && Capture.Active && Capture.Tick())
             {

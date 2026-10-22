@@ -36,7 +36,6 @@ namespace ModConfigurator
 
         internal static void OnSettingsMenuOpen(StateSettingsMenu state)
         {
-            if (!Settings.NativeSettingsTab.Value) return;
             _settingsState = state;
             _settingsSince = Now;
             _injected = false;
@@ -79,9 +78,8 @@ namespace ModConfigurator
                         if (ready) TryBuildPage(ctx);
                         else if (Now - _hudSince > 5f)
                         {
-                            Mod.Log.Warning("HUD settings page never became available - falling back to the overlay window.");
+                            Mod.Log.Warning("HUD settings page never became available - the Mods page was not built.");
                             _hudWantsPage = false;
-                            ConfigWindow.Open();
                         }
                     }
                 }
@@ -158,7 +156,6 @@ namespace ModConfigurator
             {
                 _openRequested = false;
                 Mod.Log.Error($"Could not open the settings page: {e}");
-                ConfigWindow.Open();
             }
         }
 
@@ -177,7 +174,6 @@ namespace ModConfigurator
                 Mod.Log.Error($"Could not build the native Mods page: {e}");
                 try { _page?.Abort(); } catch { /* best effort */ }
                 _page = null;
-                ConfigWindow.Open();
             }
         }
     }

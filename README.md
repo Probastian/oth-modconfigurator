@@ -7,8 +7,7 @@ An in-game **settings editor for every MelonLoader mod** in [Over the Hill](http
 ## Features
 
 - **Settings > Mods**: a new tab in the game's settings menu. Pick a mod, change its toggles, numbers and choices with the game's own option rows, reset a mod to its defaults. Changes apply immediately and are saved to the mod's `.cfg`.
-- **Settings > Controls**: every mod's key and gamepad-button settings (string entries whose id ends in `Key` or contains `Button`) are listed at the bottom of the Controls page, one heading per mod, as clones of the game's binding rows - the setting name on the left, the game's own input icon with the current binding on the right, the game's radial waiting circle, Esc / Start cancels, Backspace / Delete or the game's remove-binding input unbinds. Like the game's own bindings, only the device you have selected in the page's *Input* entry is shown (gamepad buttons or keyboard keys).
-- **Quick window** (**F7** or **L3 + R3**): a game-styled overlay with the same content; also the fallback if the native page can't be built.
+- **Settings > Controls**: every mod's key and gamepad-button settings (string entries whose id ends in `Key` or contains `Button`) are listed at the bottom of the Controls page, one heading per mod, as clones of the game's binding rows - the setting name on the left, the game's own input icon with the current binding on the right, the game's radial waiting circle, Esc / Start cancels, Backspace / Delete or the game's remove-binding input unbinds. Like the game's own bindings, like the game's own actions, every bindable has a binding per device: the page's *Input* entry decides whether the rows show and edit the keyboard or the gamepad binding. A mod that has no binding for the selected device gets a locked row (the game's lock icon) instead of being hidden.
 
 ## Requirements
 
@@ -25,16 +24,12 @@ An in-game **settings editor for every MelonLoader mod** in [Over the Hill](http
 
 | Setting | Default | |
 |---|---|---|
-| `NativeSettingsTab` | `true` | Add the Mods entry to the settings menu (restart needed) |
 | `ControlsPageBindings` | `true` | List mod keys/buttons at the bottom of Settings > Controls |
-| `OpenKey` | `F7` | Opens the quick window |
-| `GamepadChord` | `true` | L3 + R3 opens the quick window |
 | `HiddenCategories` | `MelonLoader,Loader,Il2CppAssemblyGenerator` | Categories not shown |
-| `UiScale` | `1` | Quick window size |
 
 ## Tips for mod authors
 
-Give entries a display name and description, use a `ValueRange<T>` validator for numbers (it becomes the allowed range), name hotkey entries `...Key` and gamepad ones `...Button` (stored as `UnityEngine.InputSystem` `Key` / `GamepadButton` names) to get press-to-rebind rows.
+Give entries a display name and description, use a `ValueRange<T>` validator for numbers (it becomes the allowed range), name hotkey entries `<Name>Key` and gamepad ones `<Name>Button` (stored as `UnityEngine.InputSystem` `Key` / `GamepadButton` names, `None` = unbound). A `<Name>Key` and a `<Name>Button` entry with the same `<Name>` form one bindable in Settings > Controls with a keyboard and a gamepad binding; with only one of them the other device shows a locked row.
 
 ## Limits
 
