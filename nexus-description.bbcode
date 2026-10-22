@@ -1,0 +1,42 @@
+[size=4][b]Description[/b][/size]
+An in-game [b]settings editor for every MelonLoader mod[/b] in Over the Hill. It reads the standard MelonPreferences of all loaded mods, so mods need no integration. The UI is built from the game's own settings controls.
+
+[quote]Unofficial fan mod. Not affiliated with or endorsed by Funselektor.[/quote]
+
+[size=4][b]Installation instructions[/b][/size]
+[list=1]
+[*]Install MelonLoader into the game folder and start the game once.
+[*]Put [b]ModConfigurator.dll[/b] in [b]<game folder>\Mods[/b].
+[*]Start the game: Settings now has a [b]Mods[/b] entry.
+[/list]
+Settings are stored in [b]UserData\ModConfigurator.cfg[/b].
+
+[size=4][b]Main features[/b][/size]
+[list]
+[*][b]Settings > Mods[/b]: a new tab in the game's settings menu. Pick a mod, change its toggles, numbers and choices with the game's own option rows, or reset a mod to its defaults. Changes apply immediately and are saved to the mod's .cfg.
+[*][b]Settings > Controls[/b]: every mod's key and gamepad-button settings are listed at the bottom of the Controls page as clones of the game's binding rows. Esc / Start cancels, Backspace / Delete unbinds.
+[*][b]Quick window[/b] ([b]F7[/b] or [b]L3 + R3[/b]): a game-styled overlay with the same content.
+[/list]
+
+[size=4][b]Requirements[/b][/size]
+[list]
+[*]Over the Hill (Steam)
+[*][url=https://github.com/LavaGang/MelonLoader]MelonLoader[/url] 0.7.x (tested with 0.7.3 Open-Beta)
+[/list]
+
+[size=4][b]Limits[/b][/size]
+[list]
+[*]Only mods that use MelonPreferences are listed.
+[*]Free-text string settings are read-only.
+[*]Whether a mod applies a changed value live depends on the mod.
+[*]The native Settings pages are cloned from the game's UI at runtime, so a game update may need a mod update.
+[/list]
+
+[size=4][b]Multiplayer[/b][/size]
+Purely local UI.
+
+[size=4][b]For mod authors[/b][/size]
+Give entries a display name and description, use a ValueRange validator for numbers, and name hotkey entries [b]...Key[/b] and gamepad ones [b]...Button[/b] to get press-to-rebind rows.
+
+[size=4][b]Bug reports and contributions[/b][/size]
+Please report bugs using [url=https://github.com/Probastian/oth-modconfigurator/issues]GitHub issues[/url]. Pull requests and forks are welcome. Source code and MIT license: [url=https://github.com/Probastian/oth-modconfigurator]github.com/Probastian/oth-modconfigurator[/url]
